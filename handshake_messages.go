@@ -50,6 +50,8 @@ type clientHelloMsg struct {
 	pskKeyExchangeModes              []uint8
 	earlyData                        bool
 	delegatedCredential              bool
+	// RFC7627
+	extendedMSSupported          	 bool
 }
 
 // Function used for signature_algorithms and signature_algorithrms_cert
@@ -129,7 +131,8 @@ func (m *clientHelloMsg) equal(i interface{}) bool {
 		eqKeyShares(m.keyShares, m1.keyShares) &&
 		eqUint16s(m.supportedVersions, m1.supportedVersions) &&
 		m.earlyData == m1.earlyData &&
-		m.delegatedCredential == m1.delegatedCredential
+		m.delegatedCredential == m1.delegatedCredential &&
+		m.extendedMSSupported == m1.extendedMSSupported
 }
 
 func (m *clientHelloMsg) marshal() []byte {
@@ -206,6 +209,9 @@ func (m *clientHelloMsg) marshal() []byte {
 		numExtensions++
 	}
 	if m.delegatedCredential {
+		numExtensions++
+	}
+	if m.extendedMSSupported {
 		numExtensions++
 	}
 	if numExtensions > 0 {
@@ -425,9 +431,12 @@ func (m *clientHelloMsg) marshal() []byte {
 		z[1] = byte(extensionEarlyData)
 		z = z[4:]
 	}
+	if m.extendedMSSupported {
+		binary.BigEndian.PutUint16(z, extensionEMS)
+		z = z[4:]
+	}
 	if m.delegatedCredential {
 		binary.BigEndian.PutUint16(z, extensionDelegatedCredential)
-		z = z[4:]
 	}
 
 	m.raw = x
@@ -494,7 +503,7 @@ func (m *clientHelloMsg) unmarshal(data []byte) alert {
 	m.pskKeyExchangeModes = nil
 	m.earlyData = false
 	m.delegatedCredential = false
-
+	m.extendedMSSupported = false
 	if len(data) == 0 {
 		// ClientHello is optionally followed by extension data
 		return alertSuccess
@@ -761,6 +770,12 @@ func (m *clientHelloMsg) unmarshal(data []byte) alert {
 		case extensionDelegatedCredential:
 			// https://tools.ietf.org/html/draft-ietf-tls-subcerts-02
 			m.delegatedCredential = true
+		case extensionEMS:
+			// RFC 7627
+			m.extendedMSSupported = true
+			if length != 0 {
+				return alertDecodeError
+			}
 		}
 		data = data[length:]
 		bindersOffset += length
@@ -793,6 +808,9 @@ type serverHelloMsg struct {
 	keyShare    keyShare
 	psk         bool
 	pskIdentity uint16
+
+	// RFC7627
+	extendedMSSupported          bool
 }
 
 func (m *serverHelloMsg) equal(i interface{}) bool {
@@ -826,7 +844,8 @@ func (m *serverHelloMsg) equal(i interface{}) bool {
 		m.keyShare.group == m1.keyShare.group &&
 		bytes.Equal(m.keyShare.data, m1.keyShare.data) &&
 		m.psk == m1.psk &&
-		m.pskIdentity == m1.pskIdentity
+		m.pskIdentity == m1.pskIdentity &&
+		m.extendedMSSupported == m1.extendedMSSupported
 }
 
 func (m *serverHelloMsg) marshal() []byte {
@@ -860,6 +879,9 @@ func (m *serverHelloMsg) marshal() []byte {
 	}
 	if m.secureRenegotiationSupported {
 		extensionsLength += 1 + len(m.secureRenegotiation)
+		numExtensions++
+	}
+	if m.extendedMSSupported {
 		numExtensions++
 	}
 	if alpnLen := len(m.alpnProtocol); alpnLen > 0 {
@@ -1029,6 +1051,10 @@ func (m *serverHelloMsg) marshal() []byte {
 		z[5] = byte(m.pskIdentity)
 		z = z[6:]
 	}
+	if m.extendedMSSupported {
+		binary.BigEndian.PutUint16(z, extensionEMS)
+		z = z[4:]
+	}
 
 	m.raw = x
 
@@ -1075,6 +1101,7 @@ func (m *serverHelloMsg) unmarshal(data []byte) alert {
 	m.keyShare.data = nil
 	m.psk = false
 	m.pskIdentity = 0
+	m.extendedMSSupported = false
 
 	if len(data) == 0 {
 		// ServerHello is optionally followed by extension data
@@ -1216,6 +1243,8 @@ func (m *serverHelloMsg) unmarshal(data []byte) alert {
 			}
 			m.psk = true
 			m.pskIdentity = uint16(data[0])<<8 | uint16(data[1])
+		case extensionEMS:
+			m.extendedMSSupported = true
 		}
 		data = data[length:]
 	}
