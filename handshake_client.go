@@ -65,14 +65,9 @@ func makeClientHello(config *Config) (*clientHelloMsg, error) {
 		supportedPoints:              []uint8{pointFormatUncompressed},
 		nextProtoNeg:                 len(config.NextProtos) > 0,
 		secureRenegotiationSupported: true,
-<<<<<<< HEAD
 		delegatedCredential:          config.AcceptDelegatedCredential,
 		alpnProtocols:                config.NextProtos,
 		extendedMSSupported:          config.UseExtendedMasterSecret,
-=======
-		alpnProtocols:                c.config.NextProtos,
-		extendedMSSupported:          c.config.UseExtendedMasterSecret,
->>>>>>> Make EMS configurable.
 	}
 	possibleCipherSuites := config.cipherSuites()
 	hello.cipherSuites = make([]uint16, 0, len(possibleCipherSuites))
