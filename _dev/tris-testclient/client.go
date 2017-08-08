@@ -76,6 +76,7 @@ func (c *Client) run(addr string, version, cipherSuite uint16) {
 	fmt.Println("OK\n")
 }
 
+// Usage client args host:port
 func main() {
 	var keylog_file string
 	var enable_rsa, enable_ecdsa, client_auth bool

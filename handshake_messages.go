@@ -504,6 +504,7 @@ func (m *clientHelloMsg) unmarshal(data []byte) alert {
 	m.earlyData = false
 	m.delegatedCredential = false
 	m.extendedMSSupported = false
+
 	if len(data) == 0 {
 		// ClientHello is optionally followed by extension data
 		return alertSuccess
