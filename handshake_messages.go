@@ -50,8 +50,7 @@ type clientHelloMsg struct {
 	pskKeyExchangeModes              []uint8
 	earlyData                        bool
 	delegatedCredential              bool
-	// RFC7627
-	extendedMSSupported bool
+	extendedMSSupported              bool // RFC7627
 }
 
 // Function used for signature_algorithms and signature_algorithrms_cert
@@ -144,7 +143,6 @@ func (m *clientHelloMsg) marshal() []byte {
 	numExtensions := 0
 	extensionsLength := 0
 
-	// Indicates wether to send signature_algorithms_cert extension
 	if m.nextProtoNeg {
 		numExtensions++
 	}
@@ -431,12 +429,13 @@ func (m *clientHelloMsg) marshal() []byte {
 		z[1] = byte(extensionEarlyData)
 		z = z[4:]
 	}
+	if m.delegatedCredential {
+		binary.BigEndian.PutUint16(z, extensionDelegatedCredential)
+		z = z[4:]
+	}
 	if m.extendedMSSupported {
 		binary.BigEndian.PutUint16(z, extensionEMS)
 		z = z[4:]
-	}
-	if m.delegatedCredential {
-		binary.BigEndian.PutUint16(z, extensionDelegatedCredential)
 	}
 
 	m.raw = x

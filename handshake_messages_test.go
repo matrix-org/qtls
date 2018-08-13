@@ -172,9 +172,8 @@ func (*clientHelloMsg) Generate(rand *rand.Rand, size int) reflect.Value {
 		m.earlyData = true
 	}
 
-	if rand.Intn(10) > 5 {
-		m.extendedMSSupported = true
-	}
+	m.delegatedCredential = true
+	m.extendedMSSupported = true
 	return reflect.ValueOf(m)
 }
 
