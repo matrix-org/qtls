@@ -34,7 +34,7 @@ func main() {
 	config.MinVersion = tlsVersionToName[version]
 	config.MaxVersion = tlsVersionToName[version]
 	config.InsecureSkipVerify = true
-	config.DisableExtendedMasterSecret = !enableEMS
+	config.UseExtendedMasterSecret = !enableEMS
 	config.ClientSessionCache = cache
 	var iters int
 	if resume {
