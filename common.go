@@ -88,7 +88,7 @@ const (
 	extensionSignatureAlgorithms     uint16 = 13
 	extensionALPN                    uint16 = 16
 	extensionSCT                     uint16 = 18 // https://tools.ietf.org/html/rfc6962#section-6
-	extensionEMS                 	 uint16 = 23
+	extensionEMS                     uint16 = 23
 	extensionSessionTicket           uint16 = 35
 	extensionPreSharedKey            uint16 = 41
 	extensionEarlyData               uint16 = 42

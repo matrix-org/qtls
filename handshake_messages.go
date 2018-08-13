@@ -51,7 +51,7 @@ type clientHelloMsg struct {
 	earlyData                        bool
 	delegatedCredential              bool
 	// RFC7627
-	extendedMSSupported          	 bool
+	extendedMSSupported bool
 }
 
 // Function used for signature_algorithms and signature_algorithrms_cert
@@ -811,7 +811,7 @@ type serverHelloMsg struct {
 	pskIdentity uint16
 
 	// RFC7627
-	extendedMSSupported          bool
+	extendedMSSupported bool
 }
 
 func (m *serverHelloMsg) equal(i interface{}) bool {
