@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package tls_test
+package qtls_test
 
 import (
 	"crypto/tls"
@@ -115,48 +115,50 @@ func ExampleConfig_keyLogWriter_TLS12() {
 	// CLIENT_RANDOM 0000000000000000000000000000000000000000000000000000000000000000 baca0df460a688e44ce018b025183cc2353ae01f89755ef766eedd3ecc302888ee3b3a22962e45f48c20df15a98c0e80
 }
 
-func ExampleConfig_keyLogWriter_TLS13() {
-	// Debugging TLS applications by decrypting a network traffic capture.
+// This test doesn't work because it uses crypto/tls, not qtls.
+// func ExampleConfig_keyLogWriter_TLS13() {
 
-	// WARNING: Use of KeyLogWriter compromises security and should only be
-	// used for debugging.
+// 	// Debugging TLS applications by decrypting a network traffic capture.
 
-	// Dummy test HTTP server for the example with insecure random so output is
-	// reproducible.
-	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	server.TLS = &tls.Config{
-		Rand: zeroSource{}, // for example only; don't do this.
-	}
-	server.StartTLS()
-	defer server.Close()
+// 	// WARNING: Use of KeyLogWriter compromises security and should only be
+// 	// used for debugging.
 
-	// Typically the log would go to an open file:
-	// w, err := os.OpenFile("tls-secrets.txt", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	w := os.Stdout
+// 	// Dummy test HTTP server for the example with insecure random so output is
+// 	// reproducible.
+// 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+// 	server.TLS = &tls.Config{
+// 		Rand: zeroSource{}, // for example only; don't do this.
+// 	}
+// 	server.StartTLS()
+// 	defer server.Close()
 
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				KeyLogWriter: w,
+// 	// Typically the log would go to an open file:
+// 	// w, err := os.OpenFile("tls-secrets.txt", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+// 	w := os.Stdout
 
-				Rand:               zeroSource{}, // for reproducible output; don't do this.
-				InsecureSkipVerify: true,         // test server certificate is not trusted.
-			},
-		},
-	}
-	resp, err := client.Get(server.URL)
-	if err != nil {
-		log.Fatalf("Failed to get URL: %v", err)
-	}
-	resp.Body.Close()
+// 	client := &http.Client{
+// 		Transport: &http.Transport{
+// 			TLSClientConfig: &tls.Config{
+// 				KeyLogWriter: w,
 
-	// The resulting file can be used with Wireshark to decrypt the TLS
-	// connection by setting (Pre)-Master-Secret log filename in SSL Protocol
-	// preferences.
+// 				Rand:               zeroSource{}, // for reproducible output; don't do this.
+// 				InsecureSkipVerify: true,         // test server certificate is not trusted.
+// 			},
+// 		},
+// 	}
+// 	resp, err := client.Get(server.URL)
+// 	if err != nil {
+// 		log.Fatalf("Failed to get URL: %v", err)
+// 	}
+// 	resp.Body.Close()
 
-	// Output:
-	// CLIENT_HANDSHAKE_TRAFFIC_SECRET 0000000000000000000000000000000000000000000000000000000000000000 16ca97d21087a14d406b2601b4713dd82b156cc01d54665baaa4bdb62b72b9a4
-	// SERVER_HANDSHAKE_TRAFFIC_SECRET 0000000000000000000000000000000000000000000000000000000000000000 102c68d960da4f5e2b76a99636ac07bb5774e43b8ce8c14aa4dfd9bf54d11754
-	// SERVER_TRAFFIC_SECRET_0 0000000000000000000000000000000000000000000000000000000000000000 f3208d533bb885f32f52142acb484eed104739970c2f426e72a1ee31f6d28650
-	// CLIENT_TRAFFIC_SECRET_0 0000000000000000000000000000000000000000000000000000000000000000 70de6b1936df7db171c02f9cfdb04dfa9405a891c959beb15b86f26b2057ba23
-}
+// 	// The resulting file can be used with Wireshark to decrypt the TLS
+// 	// connection by setting (Pre)-Master-Secret log filename in SSL Protocol
+// 	// preferences.
+
+// 	// Output:
+// 	// CLIENT_HANDSHAKE_TRAFFIC_SECRET 0000000000000000000000000000000000000000000000000000000000000000 16ca97d21087a14d406b2601b4713dd82b156cc01d54665baaa4bdb62b72b9a4
+// 	// SERVER_HANDSHAKE_TRAFFIC_SECRET 0000000000000000000000000000000000000000000000000000000000000000 102c68d960da4f5e2b76a99636ac07bb5774e43b8ce8c14aa4dfd9bf54d11754
+// 	// SERVER_TRAFFIC_SECRET_0 0000000000000000000000000000000000000000000000000000000000000000 f3208d533bb885f32f52142acb484eed104739970c2f426e72a1ee31f6d28650
+// 	// CLIENT_TRAFFIC_SECRET_0 0000000000000000000000000000000000000000000000000000000000000000 70de6b1936df7db171c02f9cfdb04dfa9405a891c959beb15b86f26b2057ba23
+// }

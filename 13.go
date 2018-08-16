@@ -1,4 +1,4 @@
-package tls
+package qtls
 
 import (
 	"bytes"
@@ -21,7 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang_org/x/crypto/curve25519"
+	"golang.org/x/crypto/curve25519"
 )
 
 // numSessionTickets is the number of different session tickets the

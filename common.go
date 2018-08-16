@@ -2,12 +2,11 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package tls
+package qtls
 
 import (
 	"container/list"
 	"crypto"
-	"crypto/internal/cipherhw"
 	"crypto/rand"
 	"crypto/sha512"
 	"crypto/x509"
@@ -1122,7 +1121,10 @@ func defaultTLS13CipherSuites() []uint16 {
 
 func initDefaultCipherSuites() {
 	var topCipherSuites, topTLS13CipherSuites []uint16
-	if cipherhw.AESGCMSupport() {
+	// TODO: check for hardware support
+	// This used to be: if cipherhw.AESGCMSupport() {
+	// However, cipherhw is an internal package
+	if true {
 		// If AES-GCM hardware is provided then prioritise AES-GCM
 		// cipher suites.
 		topTLS13CipherSuites = []uint16{
