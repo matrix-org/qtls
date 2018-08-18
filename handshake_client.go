@@ -108,6 +108,9 @@ NextCipherSuite:
 		hello.supportedVersions = config.getSupportedVersions()
 		hello.supportedSignatureAlgorithms = supportedSignatureAlgorithms13
 		hello.supportedSignatureAlgorithmsCert = supportedSigAlgorithmsCert(supportedSignatureAlgorithms13)
+		if config.GetExtensions != nil {
+			hello.additionalExtensions = config.GetExtensions(typeClientHello)
+		}
 	}
 
 	return hello, nil
