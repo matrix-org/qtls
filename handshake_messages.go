@@ -50,6 +50,8 @@ type clientHelloMsg struct {
 	pskKeyExchangeModes              []uint8
 	earlyData                        bool
 	delegatedCredential              bool
+
+	additionalExtensions []extension
 }
 
 // Function used for signature_algorithms and signature_algorithrms_cert
@@ -105,6 +107,16 @@ func (m *clientHelloMsg) equal(i interface{}) bool {
 	m1, ok := i.(*clientHelloMsg)
 	if !ok {
 		return false
+	}
+
+	if len(m.additionalExtensions) != len(m1.additionalExtensions) {
+		return false
+	}
+	for i, ex := range m.additionalExtensions {
+		ex1 := m1.additionalExtensions[i]
+		if ex.extType != ex1.extType || !bytes.Equal(ex.data, ex1.data) {
+			return false
+		}
 	}
 
 	return bytes.Equal(m.raw, m1.raw) &&
@@ -207,6 +219,12 @@ func (m *clientHelloMsg) marshal() []byte {
 	}
 	if m.delegatedCredential {
 		numExtensions++
+	}
+	if len(m.additionalExtensions) > 0 {
+		numExtensions += len(m.additionalExtensions)
+		for _, ex := range m.additionalExtensions {
+			extensionsLength += len(ex.data)
+		}
 	}
 	if numExtensions > 0 {
 		extensionsLength += 4 * numExtensions
@@ -429,6 +447,15 @@ func (m *clientHelloMsg) marshal() []byte {
 		binary.BigEndian.PutUint16(z, extensionDelegatedCredential)
 		z = z[4:]
 	}
+	for _, ex := range m.additionalExtensions {
+		z[0] = byte(ex.extType >> 8)
+		z[1] = byte(ex.extType)
+		l := len(ex.data)
+		z[2] = byte(l >> 8)
+		z[3] = byte(l)
+		copy(z[4:], ex.data)
+		z = z[4+l:]
+	}
 
 	m.raw = x
 
@@ -514,7 +541,7 @@ func (m *clientHelloMsg) unmarshal(data []byte) alert {
 		if len(data) < 4 {
 			return alertDecodeError
 		}
-		extension := uint16(data[0])<<8 | uint16(data[1])
+		ext := uint16(data[0])<<8 | uint16(data[1])
 		length := int(data[2])<<8 | int(data[3])
 		data = data[4:]
 		bindersOffset += 4
@@ -522,7 +549,7 @@ func (m *clientHelloMsg) unmarshal(data []byte) alert {
 			return alertDecodeError
 		}
 
-		switch extension {
+		switch ext {
 		case extensionServerName:
 			d := data[:length]
 			if len(d) < 2 {
@@ -761,6 +788,9 @@ func (m *clientHelloMsg) unmarshal(data []byte) alert {
 		case extensionDelegatedCredential:
 			// https://tools.ietf.org/html/draft-ietf-tls-subcerts-02
 			m.delegatedCredential = true
+		default:
+			m.additionalExtensions = append(m.additionalExtensions,
+				extension{extType: ext, data: data[:length]})
 		}
 		data = data[length:]
 		bindersOffset += length
