@@ -843,6 +843,9 @@ func (hs *clientHandshakeState) processEncryptedExtensions(ee *encryptedExtensio
 		c.clientProtocol = ee.alpnProtocol
 		c.clientProtocolFallback = false
 	}
+	if hs.c.config.ReceivedExtensions != nil {
+		return hs.c.config.ReceivedExtensions(typeEncryptedExtensions, ee.additionalExtensions)
+	}
 	return nil
 }
 
