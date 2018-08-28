@@ -32,6 +32,7 @@ type clientHandshakeState struct {
 	finishedHash finishedHash
 
 	// TLS 1.3 fields
+	state       handshakeState
 	keySchedule *keySchedule13
 	privateKey  []byte
 }
@@ -209,6 +210,13 @@ func (c *Conn) clientHandshake() error {
 		}
 	}
 
+	hs.state = clientStateStart
+	// send ClientHello
+	if _, err := c.writeRecord(recordTypeHandshake, hs.hello.marshal()); err != nil {
+		return err
+	}
+	hs.state = clientStateWaitSH
+
 	if err = hs.handshake(); err != nil {
 		return err
 	}
@@ -222,41 +230,41 @@ func (c *Conn) clientHandshake() error {
 	return nil
 }
 
-// Does the handshake, either a full one or resumes old session.
-// Requires hs.c, hs.hello, and, optionally, hs.session to be set.
-func (hs *clientHandshakeState) handshake() error {
+func (hs *clientHandshakeState) handleMessage(msg interface{}) error {
 	c := hs.c
 
-	// send ClientHello
-	if _, err := c.writeRecord(recordTypeHandshake, hs.hello.marshal()); err != nil {
+	switch hs.state {
+	case clientStateWaitSH:
+		serverHello, ok := msg.(*serverHelloMsg)
+		if !ok {
+			c.sendAlert(alertUnexpectedMessage)
+			return unexpectedMessageError(hs.serverHello, msg)
+		}
+		return hs.handleServerHello(serverHello)
+	default:
+		return errors.New("unexpected handshake message")
+	}
+}
+
+func (hs *clientHandshakeState) handleServerHello(sh *serverHelloMsg) error {
+	hs.serverHello = sh
+
+	if err := hs.pickTLSVersion(); err != nil {
 		return err
 	}
 
-	msg, err := c.readHandshake()
-	if err != nil {
+	if err := hs.pickCipherSuite(); err != nil {
 		return err
 	}
 
-	var ok bool
-	if hs.serverHello, ok = msg.(*serverHelloMsg); !ok {
-		c.sendAlert(alertUnexpectedMessage)
-		return unexpectedMessageError(hs.serverHello, msg)
-	}
-
-	if err = hs.pickTLSVersion(); err != nil {
-		return err
-	}
-
-	if err = hs.pickCipherSuite(); err != nil {
-		return err
-	}
-
+	c := hs.c
 	var isResume bool
 	if c.vers >= VersionTLS13 {
 		hs.keySchedule = newKeySchedule13(hs.suite, c.config, hs.hello.random)
 		hs.keySchedule.write(hs.hello.marshal())
 		hs.keySchedule.write(hs.serverHello.marshal())
 	} else {
+		var err error
 		isResume, err = hs.processServerHello()
 		if err != nil {
 			return err
@@ -329,6 +337,17 @@ func (hs *clientHandshakeState) handshake() error {
 	c.handshakeComplete = true
 
 	return nil
+}
+
+// Does the handshake, either a full one or resumes old session.
+// Requires hs.c, hs.hello, and, optionally, hs.session to be set.
+func (hs *clientHandshakeState) handshake() error {
+	msg, err := hs.c.readHandshake()
+	if err != nil {
+		return err
+	}
+
+	return hs.handleMessage(msg)
 }
 
 func (hs *clientHandshakeState) pickTLSVersion() error {

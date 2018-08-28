@@ -132,6 +132,21 @@ type keyShare struct {
 	data  []byte
 }
 
+// handshakeState is the state in the TLS state machine
+// Only used for TLS 1.3
+type handshakeState uint8
+
+const (
+	clientStateStart handshakeState = iota
+	clientStateWaitSH
+	clientStateWaitEE
+	clientStateWaitCertCR
+	clientStateWaitCert
+	clientStateWaitCV
+	clientStateWaitFinished
+	clientStateConnected
+)
+
 // TLS 1.3 PSK Identity and Binder, as sent by the client
 // https://tools.ietf.org/html/draft-ietf-tls-tls13-18#section-4.2.6
 
