@@ -32,7 +32,12 @@ type clientHandshakeState struct {
 	finishedHash finishedHash
 
 	// TLS 1.3 fields
-	state       handshakeState
+	state             handshakeState
+	hash              crypto.Hash
+	serverFinishedKey []byte
+	clientFinishedKey []byte
+	clientCipher      interface{}
+
 	keySchedule *keySchedule13
 	privateKey  []byte
 }
@@ -242,6 +247,9 @@ func (hs *clientHandshakeState) handleMessage(msg interface{}) error {
 		}
 		return hs.handleServerHello(serverHello)
 	default:
+		if c.vers >= VersionTLS13 {
+			return hs.handleMessage13(msg)
+		}
 		return errors.New("unexpected handshake message")
 	}
 }

@@ -881,6 +881,27 @@ func verifyPeerHandshakeSignature(
 	return nil, alertSuccess
 }
 
+func (hs *clientHandshakeState) handleMessage13(msg interface{}) error {
+	c := hs.c
+
+	switch hs.state {
+	case clientStateWaitEE:
+		encryptedExtensions, ok := msg.(*encryptedExtensionsMsg)
+		if !ok {
+			c.sendAlert(alertUnexpectedMessage)
+			return unexpectedMessageError(encryptedExtensions, msg)
+		}
+		if err := hs.processEncryptedExtensions(encryptedExtensions); err != nil {
+			return err
+		}
+		hs.keySchedule.write(encryptedExtensions.marshal())
+		hs.state = clientStateWaitCertCR
+		return hs.continueTLS13Handshake()
+	default:
+		return errors.New("unexpected handshake message")
+	}
+}
+
 func (hs *clientHandshakeState) getCertificate13(certReq *certificateRequestMsg13) (*Certificate, error) {
 	certReq12 := &certificateRequestMsg{
 		hasSignatureAndHash:          true,
@@ -964,8 +985,7 @@ func (hs *clientHandshakeState) sendCertificate13(chainToSend *Certificate, cert
 
 func (hs *clientHandshakeState) doTLS13Handshake() error {
 	c := hs.c
-	hash := hashForSuite(hs.suite)
-	hashSize := hash.Size()
+	hs.hash = hashForSuite(hs.suite)
 	serverHello := hs.serverHello
 	c.scts = serverHello.scts
 
@@ -992,7 +1012,8 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 
 	// Calculate handshake secrets.
 	hs.keySchedule.setSecret(ecdheSecret)
-	clientCipher, clientHandshakeSecret := hs.keySchedule.prepareCipher(secretHandshakeClient)
+	var clientHandshakeSecret []byte
+	hs.clientCipher, clientHandshakeSecret = hs.keySchedule.prepareCipher(secretHandshakeClient)
 	serverCipher, serverHandshakeSecret := hs.keySchedule.prepareCipher(secretHandshakeServer)
 	if c.hand.Len() > 0 {
 		c.sendAlert(alertUnexpectedMessage)
@@ -1002,25 +1023,23 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 	c.in.setCipher(c.vers, serverCipher)
 
 	// Calculate MAC key for Finished messages.
-	serverFinishedKey := hkdfExpandLabel(hash, serverHandshakeSecret, nil, "finished", hashSize)
-	clientFinishedKey := hkdfExpandLabel(hash, clientHandshakeSecret, nil, "finished", hashSize)
+	hs.serverFinishedKey = hkdfExpandLabel(hs.hash, serverHandshakeSecret, nil, "finished", hs.hash.Size())
+	hs.clientFinishedKey = hkdfExpandLabel(hs.hash, clientHandshakeSecret, nil, "finished", hs.hash.Size())
+
+	hs.state = clientStateWaitEE
 
 	msg, err := c.readHandshake()
 	if err != nil {
 		return err
 	}
-	encryptedExtensions, ok := msg.(*encryptedExtensionsMsg)
-	if !ok {
-		c.sendAlert(alertUnexpectedMessage)
-		return unexpectedMessageError(encryptedExtensions, msg)
-	}
-	if err := hs.processEncryptedExtensions(encryptedExtensions); err != nil {
-		return err
-	}
-	hs.keySchedule.write(encryptedExtensions.marshal())
+	return hs.handleMessage13(msg)
+}
+
+func (hs *clientHandshakeState) continueTLS13Handshake() error {
+	c := hs.c
 
 	// PSKs are not supported, so receive Certificate message.
-	msg, err = c.readHandshake()
+	msg, err := c.readHandshake()
 	if err != nil {
 		return err
 	}
@@ -1110,7 +1129,7 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 		return unexpectedMessageError(serverFinished, msg)
 	}
 	// Validate server Finished hash.
-	expectedVerifyData := hmacOfSum(hash, hs.keySchedule.transcriptHash, serverFinishedKey)
+	expectedVerifyData := hmacOfSum(hs.hash, hs.keySchedule.transcriptHash, hs.serverFinishedKey)
 	if subtle.ConstantTimeCompare(expectedVerifyData, serverFinished.verifyData) != 1 {
 		c.sendAlert(alertDecryptError)
 		return errors.New("tls: server's Finished message is incorrect")
@@ -1124,7 +1143,7 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 	// TODO store initial traffic secret key for KeyUpdate GH #85
 
 	// Change outbound handshake cipher for final step
-	c.out.setCipher(c.vers, clientCipher)
+	c.out.setCipher(c.vers, hs.clientCipher)
 
 	// Client auth requires sending a (possibly empty) Certificate followed
 	// by a CertificateVerify message (if there was an actual certificate).
@@ -1135,7 +1154,7 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 	}
 
 	// Send Finished
-	verifyData := hmacOfSum(hash, hs.keySchedule.transcriptHash, clientFinishedKey)
+	verifyData := hmacOfSum(hs.hash, hs.keySchedule.transcriptHash, hs.clientFinishedKey)
 	clientFinished := &finishedMsg{
 		verifyData: verifyData,
 	}
