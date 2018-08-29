@@ -910,7 +910,14 @@ func (hs *clientHandshakeState) handleMessage13(msg interface{}) error {
 			c.sendAlert(alertUnexpectedMessage)
 			return unexpectedMessageError(certMsg, msg)
 		}
-		if err := hs.handleCertificate(certMsg); err != nil {
+		return hs.handleCertificate(certMsg)
+	case clientStateWaitCV:
+		certVerifyMsg, ok := msg.(*certificateVerifyMsg)
+		if !ok {
+			c.sendAlert(alertUnexpectedMessage)
+			return unexpectedMessageError(certVerifyMsg, msg)
+		}
+		if err := hs.handleCertificateVerify(certVerifyMsg); err != nil {
 			return err
 		}
 		return hs.continueTLS13Handshake()
@@ -1045,7 +1052,7 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 
 	hs.state = clientStateWaitEE
 
-	for hs.state != clientStateWaitCV {
+	for hs.state != clientStateWaitFinished {
 		msg, err := c.readHandshake()
 		if err != nil {
 			return err
@@ -1082,20 +1089,7 @@ func (hs *clientHandshakeState) handleCertificate(certMsg *certificateMsg13) err
 	return nil
 }
 
-func (hs *clientHandshakeState) continueTLS13Handshake() error {
-	c := hs.c
-
-	// Receive CertificateVerify message.
-	msg, err := c.readHandshake()
-	if err != nil {
-		return err
-	}
-	certVerifyMsg, ok := msg.(*certificateVerifyMsg)
-	if !ok {
-		c.sendAlert(alertUnexpectedMessage)
-		return unexpectedMessageError(certVerifyMsg, msg)
-	}
-
+func (hs *clientHandshakeState) handleCertificateVerify(certVerifyMsg *certificateVerifyMsg) error {
 	// Validate the DC if present. The DC is only processed if the extension was
 	// indicated by the ClientHello; otherwise this call will result in an
 	// "illegal_parameter" alert.
@@ -1125,13 +1119,19 @@ func (hs *clientHandshakeState) continueTLS13Handshake() error {
 		hs.keySchedule.transcriptHash.Sum(nil),
 		"TLS 1.3, server CertificateVerify")
 	if err != nil {
-		c.sendAlert(alertCode)
+		hs.c.sendAlert(alertCode)
 		return err
 	}
 	hs.keySchedule.write(certVerifyMsg.marshal())
+	hs.state = clientStateWaitFinished
+	return nil
+}
+
+func (hs *clientHandshakeState) continueTLS13Handshake() error {
+	c := hs.c
 
 	// Receive Finished message.
-	msg, err = c.readHandshake()
+	msg, err := c.readHandshake()
 	if err != nil {
 		return err
 	}
