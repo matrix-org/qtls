@@ -37,6 +37,9 @@ type clientHandshakeState struct {
 	serverFinishedKey []byte
 	clientFinishedKey []byte
 	clientCipher      interface{}
+	certReq           *certificateRequestMsg13 // nil if no cert is requested
+	chainToSend       *Certificate
+	serverCerts       []certificateEntry
 
 	keySchedule *keySchedule13
 	privateKey  []byte

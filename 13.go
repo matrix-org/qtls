@@ -896,6 +896,23 @@ func (hs *clientHandshakeState) handleMessage13(msg interface{}) error {
 		}
 		hs.keySchedule.write(encryptedExtensions.marshal())
 		hs.state = clientStateWaitCertCR
+		return nil
+	case clientStateWaitCertCR:
+		var isCertRequested bool
+		if hs.certReq, isCertRequested = msg.(*certificateRequestMsg13); isCertRequested {
+			return hs.handleCertificateReq(hs.certReq)
+		}
+		// if no certificate is requested, the next message has to be the certificate
+		fallthrough
+	case clientStateWaitCert:
+		certMsg, ok := msg.(*certificateMsg13)
+		if !ok {
+			c.sendAlert(alertUnexpectedMessage)
+			return unexpectedMessageError(certMsg, msg)
+		}
+		if err := hs.handleCertificate(certMsg); err != nil {
+			return err
+		}
 		return hs.continueTLS13Handshake()
 	default:
 		return errors.New("unexpected handshake message")
@@ -1028,53 +1045,48 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 
 	hs.state = clientStateWaitEE
 
-	msg, err := c.readHandshake()
-	if err != nil {
-		return err
-	}
-	return hs.handleMessage13(msg)
-}
-
-func (hs *clientHandshakeState) continueTLS13Handshake() error {
-	c := hs.c
-
-	// PSKs are not supported, so receive Certificate message.
-	msg, err := c.readHandshake()
-	if err != nil {
-		return err
-	}
-
-	var chainToSend *Certificate
-	certReq, isCertRequested := msg.(*certificateRequestMsg13)
-	if isCertRequested {
-		hs.keySchedule.write(certReq.marshal())
-
-		if chainToSend, err = hs.getCertificate13(certReq); err != nil {
-			c.sendAlert(alertInternalError)
-			return err
-		}
-
-		msg, err = c.readHandshake()
+	for hs.state != clientStateWaitCV {
+		msg, err := c.readHandshake()
 		if err != nil {
 			return err
 		}
+		if err := hs.handleMessage13(msg); err != nil {
+			return err
+		}
 	}
+	return nil
+}
 
-	certMsg, ok := msg.(*certificateMsg13)
-	if !ok {
-		c.sendAlert(alertUnexpectedMessage)
-		return unexpectedMessageError(certMsg, msg)
+func (hs *clientHandshakeState) handleCertificateReq(certReq *certificateRequestMsg13) error {
+	hs.keySchedule.write(hs.certReq.marshal())
+
+	var err error
+	if hs.chainToSend, err = hs.getCertificate13(hs.certReq); err != nil {
+		hs.c.sendAlert(alertInternalError)
+		return err
 	}
+	hs.state = clientStateWaitCert
+	return nil
+}
+
+func (hs *clientHandshakeState) handleCertificate(certMsg *certificateMsg13) error {
 	hs.keySchedule.write(certMsg.marshal())
+	hs.serverCerts = certMsg.certificates
 
 	// Validate certificates.
 	certs := getCertsFromEntries(certMsg.certificates)
 	if err := hs.processCertsFromServer(certs); err != nil {
 		return err
 	}
+	hs.state = clientStateWaitCV
+	return nil
+}
+
+func (hs *clientHandshakeState) continueTLS13Handshake() error {
+	c := hs.c
 
 	// Receive CertificateVerify message.
-	msg, err = c.readHandshake()
+	msg, err := c.readHandshake()
 	if err != nil {
 		return err
 	}
@@ -1087,9 +1099,9 @@ func (hs *clientHandshakeState) continueTLS13Handshake() error {
 	// Validate the DC if present. The DC is only processed if the extension was
 	// indicated by the ClientHello; otherwise this call will result in an
 	// "illegal_parameter" alert.
-	if len(certMsg.certificates) > 0 {
+	if len(hs.serverCerts) > 0 {
 		if err := hs.processDelegatedCredentialFromServer(
-			certMsg.certificates[0].delegatedCredential,
+			hs.serverCerts[0].delegatedCredential,
 			certVerifyMsg.signatureAlgorithm); err != nil {
 			return err
 		}
@@ -1147,8 +1159,8 @@ func (hs *clientHandshakeState) continueTLS13Handshake() error {
 
 	// Client auth requires sending a (possibly empty) Certificate followed
 	// by a CertificateVerify message (if there was an actual certificate).
-	if isCertRequested {
-		if err := hs.sendCertificate13(chainToSend, certReq); err != nil {
+	if hs.certReq != nil {
+		if err := hs.sendCertificate13(hs.chainToSend, hs.certReq); err != nil {
 			return err
 		}
 	}
