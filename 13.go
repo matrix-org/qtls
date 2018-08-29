@@ -917,10 +917,14 @@ func (hs *clientHandshakeState) handleMessage13(msg interface{}) error {
 			c.sendAlert(alertUnexpectedMessage)
 			return unexpectedMessageError(certVerifyMsg, msg)
 		}
-		if err := hs.handleCertificateVerify(certVerifyMsg); err != nil {
-			return err
+		return hs.handleCertificateVerify(certVerifyMsg)
+	case clientStateWaitFinished:
+		serverFinished, ok := msg.(*finishedMsg)
+		if !ok {
+			c.sendAlert(alertUnexpectedMessage)
+			return unexpectedMessageError(serverFinished, msg)
 		}
-		return hs.continueTLS13Handshake()
+		return hs.handleServerFinished(serverFinished)
 	default:
 		return errors.New("unexpected handshake message")
 	}
@@ -1052,7 +1056,7 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 
 	hs.state = clientStateWaitEE
 
-	for hs.state != clientStateWaitFinished {
+	for hs.state != clientStateConnected {
 		msg, err := c.readHandshake()
 		if err != nil {
 			return err
@@ -1127,19 +1131,9 @@ func (hs *clientHandshakeState) handleCertificateVerify(certVerifyMsg *certifica
 	return nil
 }
 
-func (hs *clientHandshakeState) continueTLS13Handshake() error {
+func (hs *clientHandshakeState) handleServerFinished(serverFinished *finishedMsg) error {
 	c := hs.c
 
-	// Receive Finished message.
-	msg, err := c.readHandshake()
-	if err != nil {
-		return err
-	}
-	serverFinished, ok := msg.(*finishedMsg)
-	if !ok {
-		c.sendAlert(alertUnexpectedMessage)
-		return unexpectedMessageError(serverFinished, msg)
-	}
 	// Validate server Finished hash.
 	expectedVerifyData := hmacOfSum(hs.hash, hs.keySchedule.transcriptHash, hs.serverFinishedKey)
 	if subtle.ConstantTimeCompare(expectedVerifyData, serverFinished.verifyData) != 1 {
@@ -1181,6 +1175,7 @@ func (hs *clientHandshakeState) continueTLS13Handshake() error {
 		return errors.New("tls: unexpected data after handshake")
 	}
 	c.in.setCipher(c.vers, appServerCipher)
+	hs.state = clientStateConnected
 	return nil
 }
 
