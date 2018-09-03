@@ -88,7 +88,8 @@ func testClientHelloFailure(t *testing.T, serverConfig *Config, m handshakeMessa
 	hs := serverHandshakeState{
 		c: Server(s, serverConfig),
 	}
-	_, err := hs.readClientHello()
+	hs.c.hs = &hs
+	err := hs.c.readMessages()
 	s.Close()
 	if len(expectedSubStr) == 0 {
 		if err != nil && err != io.EOF {
@@ -1218,7 +1219,8 @@ func TestSNIGivenOnFailure(t *testing.T) {
 	hs := serverHandshakeState{
 		c: Server(s, serverConfig),
 	}
-	_, err := hs.readClientHello()
+	hs.c.hs = &hs
+	err := hs.c.readMessages()
 	defer s.Close()
 
 	if err == nil {

@@ -145,6 +145,14 @@ const (
 	clientStateWaitCV
 	clientStateWaitFinished
 	clientStateConnected
+	serverStateStart
+	serverStateRecvdCH
+	serverStateNegotiated
+	serverStateWaitFlight2
+	serverStateWaitCert
+	serverStateWaitCV
+	serverStateWaitFinished
+	serverStateConnected
 )
 
 // TLS 1.3 PSK Identity and Binder, as sent by the client

@@ -37,6 +37,7 @@ type serverHandshakeState struct {
 	delegatedCredential []byte
 
 	// TLS 1.0-1.2 fields
+	isResume        bool
 	ellipticOk      bool
 	ecdsaOk         bool
 	rsaDecryptOk    bool
@@ -46,6 +47,7 @@ type serverHandshakeState struct {
 	certsFromClient [][]byte
 
 	// TLS 1.3 fields
+	state             handshakeState
 	hello13Enc        *encryptedExtensionsMsg
 	keySchedule       *keySchedule13
 	clientFinishedKey []byte
@@ -61,15 +63,31 @@ func (c *Conn) serverHandshake() error {
 	c.config.serverInitOnce.Do(func() { c.config.serverInit(nil) })
 
 	hs := serverHandshakeState{
-		c: c,
+		c:     c,
+		state: serverStateStart,
 	}
 	c.in.traceErr = hs.traceErr
 	c.out.traceErr = hs.traceErr
-	isResume, err := hs.readClientHello()
+	c.hs = &hs
+
+	if err := c.readMessages(); err != nil {
+		return err
+	}
+	return c.doServerHandshake()
+}
+
+func (c *Conn) readMessages() error {
+	msg, err := c.readHandshake()
 	if err != nil {
 		return err
 	}
 
+	return c.hs.handleMessage(msg)
+}
+
+func (c *Conn) doServerHandshake() error {
+	hs := c.hs
+	isResume := hs.isResume
 	// For an overview of TLS handshaking, see https://tools.ietf.org/html/rfc5246#section-7.3
 	// and https://tools.ietf.org/html/draft-ietf-tls-tls13-18#section-2
 	c.buffering = true
@@ -80,7 +98,6 @@ func (c *Conn) serverHandshake() error {
 		if _, err := c.flush(); err != nil {
 			return err
 		}
-		c.hs = &hs
 		// If the client is sending early data while the server expects
 		// it, delay the Finished check until HandshakeConfirmed() is
 		// called or until all early data is Read(). Otherwise, complete
@@ -154,22 +171,25 @@ func (c *Conn) serverHandshake() error {
 	return nil
 }
 
-// readClientHello reads a ClientHello message from the client and decides
-// whether we will perform session resumption.
-func (hs *serverHandshakeState) readClientHello() (isResume bool, err error) {
+func (hs *serverHandshakeState) handleMessage(msg interface{}) error {
 	c := hs.c
 
-	msg, err := c.readHandshake()
-	if err != nil {
-		return false, err
-	}
-	var ok bool
-	hs.clientHello, ok = msg.(*clientHelloMsg)
+	clientHello, ok := msg.(*clientHelloMsg)
 	if !ok {
 		c.sendAlert(alertUnexpectedMessage)
-		return false, unexpectedMessageError(hs.clientHello, msg)
+		return unexpectedMessageError(hs.clientHello, msg)
 	}
+	var err error
+	hs.isResume, err = hs.handleClientHello(clientHello)
+	return err
+}
 
+// handleClientHello processes a ClientHello message from the client and
+// decides whether we will perform session resumption.
+func (hs *serverHandshakeState) handleClientHello(ch *clientHelloMsg) (isResume bool, err error) {
+	c := hs.c
+
+	hs.clientHello = ch
 	if c.config.GetConfigForClient != nil {
 		if newConfig, err := c.config.GetConfigForClient(hs.clientHelloInfo()); err != nil {
 			c.out.traceErr, c.in.traceErr = nil, nil // disable tracing
@@ -187,12 +207,14 @@ func (hs *serverHandshakeState) readClientHello() (isResume bool, err error) {
 	}
 
 	if hs.clientHello.supportedVersions != nil {
+		var ok bool
 		c.vers, ok = c.config.pickVersion(hs.clientHello.supportedVersions)
 		if !ok {
 			c.sendAlert(alertProtocolVersion)
 			return false, fmt.Errorf("tls: none of the client versions (%x) are supported", hs.clientHello.supportedVersions)
 		}
 	} else {
+		var ok bool
 		c.vers, ok = c.config.mutualVersion(hs.clientHello.vers)
 		if !ok {
 			c.sendAlert(alertProtocolVersion)
