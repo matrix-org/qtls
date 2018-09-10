@@ -292,6 +292,13 @@ func (hs *serverHandshakeState) handleMessage13(msg interface{}) error {
 			return unexpectedMessageError(certVerify, msg)
 		}
 		return hs.handleCertificateVerify(certVerify)
+	case serverStateWaitFinished:
+		clientFinished, ok := msg.(*finishedMsg)
+		if !ok {
+			c.sendAlert(alertUnexpectedMessage)
+			return unexpectedMessageError(clientFinished, msg)
+		}
+		return hs.handleClientFinished(clientFinished)
 	default:
 		return errors.New("unexpected handshake message")
 	}
@@ -321,6 +328,31 @@ func (hs *serverHandshakeState) handleCertificateVerify(certVerify *certificateV
 		return err
 	}
 	hs.keySchedule.write(certVerify.marshal())
+	hs.state = serverStateWaitFinished
+	return nil
+}
+
+func (hs *serverHandshakeState) handleClientFinished(clientFinished *finishedMsg) error {
+	c := hs.c
+
+	hash := hashForSuite(hs.suite)
+	expectedVerifyData := hmacOfSum(hash, hs.keySchedule.transcriptHash, hs.clientFinishedKey)
+	if len(expectedVerifyData) != len(clientFinished.verifyData) ||
+		subtle.ConstantTimeCompare(expectedVerifyData, clientFinished.verifyData) != 1 {
+		c.sendAlert(alertDecryptError)
+		return errors.New("tls: client's Finished message is incorrect")
+	}
+	hs.keySchedule.write(clientFinished.marshal())
+
+	c.hs = nil // Discard the server handshake state
+	if c.hand.Len() > 0 {
+		return c.sendAlert(alertUnexpectedMessage)
+	}
+	c.in.setCipher(c.vers, hs.appClientCipher)
+	c.in.traceErr, c.out.traceErr = nil, nil
+	c.phase = handshakeConfirmed
+	hs.state = serverStateConnected
+	atomic.StoreInt32(&c.handshakeConfirmed, 1)
 	return nil
 }
 
@@ -352,7 +384,7 @@ func (hs *serverHandshakeState) readClientFinished13(hasConfirmLock bool) error 
 	}
 
 	c.phase = readingClientFinished
-	for hs.state != serverStateWaitFinished {
+	for hs.state != serverStateConnected {
 		msg, err := c.readHandshake()
 		if err != nil {
 			return err
@@ -361,34 +393,6 @@ func (hs *serverHandshakeState) readClientFinished13(hasConfirmLock bool) error 
 			return err
 		}
 	}
-
-	msg, err := c.readHandshake()
-	if err != nil {
-		return err
-	}
-	clientFinished, ok := msg.(*finishedMsg)
-	if !ok {
-		c.sendAlert(alertUnexpectedMessage)
-		return unexpectedMessageError(clientFinished, msg)
-	}
-
-	hash := hashForSuite(hs.suite)
-	expectedVerifyData := hmacOfSum(hash, hs.keySchedule.transcriptHash, hs.clientFinishedKey)
-	if len(expectedVerifyData) != len(clientFinished.verifyData) ||
-		subtle.ConstantTimeCompare(expectedVerifyData, clientFinished.verifyData) != 1 {
-		c.sendAlert(alertDecryptError)
-		return errors.New("tls: client's Finished message is incorrect")
-	}
-	hs.keySchedule.write(clientFinished.marshal())
-
-	c.hs = nil // Discard the server handshake state
-	if c.hand.Len() > 0 {
-		return c.sendAlert(alertUnexpectedMessage)
-	}
-	c.in.setCipher(c.vers, hs.appClientCipher)
-	c.in.traceErr, c.out.traceErr = nil, nil
-	c.phase = handshakeConfirmed
-	atomic.StoreInt32(&c.handshakeConfirmed, 1)
 
 	// Any read operation after handshakeRunning and before handshakeConfirmed
 	// will be holding this lock, which we release as soon as the confirmation
