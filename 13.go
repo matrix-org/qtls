@@ -265,6 +265,62 @@ CurvePreferenceLoop:
 		c.phase = waitingClientFinished
 	}
 
+	// (4.4.2) Client MUST send certificate msg if requested by server
+	if c.config.ClientAuth >= RequestClientCert && !c.didResume {
+		hs.state = serverStateWaitCert
+	} else {
+		hs.state = serverStateWaitFinished
+	}
+	return nil
+}
+
+func (hs *serverHandshakeState) handleMessage13(msg interface{}) error {
+	c := hs.c
+
+	switch hs.state {
+	case serverStateWaitCert:
+		certMsg, ok := msg.(*certificateMsg13)
+		if !ok {
+			c.sendAlert(alertCertificateRequired)
+			return unexpectedMessageError(certMsg, msg)
+		}
+		return hs.handleCertificate(certMsg)
+	case serverStateWaitCV:
+		certVerify, ok := msg.(*certificateVerifyMsg)
+		if !ok {
+			c.sendAlert(alertUnexpectedMessage)
+			return unexpectedMessageError(certVerify, msg)
+		}
+		return hs.handleCertificateVerify(certVerify)
+	default:
+		return errors.New("unexpected handshake message")
+	}
+}
+
+func (hs *serverHandshakeState) handleCertificate(certMsg *certificateMsg13) error {
+	hs.keySchedule.write(certMsg.marshal())
+	certs := getCertsFromEntries(certMsg.certificates)
+	pubKey, err := hs.processCertsFromClient(certs)
+	if err != nil {
+		return err
+	}
+	hs.clientPubKey = pubKey
+	hs.state = serverStateWaitCV
+	return nil
+}
+
+func (hs *serverHandshakeState) handleCertificateVerify(certVerify *certificateVerifyMsg) error {
+	err, alertCode := verifyPeerHandshakeSignature(
+		certVerify,
+		hs.clientPubKey,
+		supportedSignatureAlgorithms13,
+		hs.keySchedule.transcriptHash.Sum(nil),
+		"TLS 1.3, client CertificateVerify")
+	if err != nil {
+		hs.c.sendAlert(alertCode)
+		return err
+	}
+	hs.keySchedule.write(certVerify.marshal())
 	return nil
 }
 
@@ -296,62 +352,20 @@ func (hs *serverHandshakeState) readClientFinished13(hasConfirmLock bool) error 
 	}
 
 	c.phase = readingClientFinished
+	for hs.state != serverStateWaitFinished {
+		msg, err := c.readHandshake()
+		if err != nil {
+			return err
+		}
+		if err := hs.handleMessage13(msg); err != nil {
+			return err
+		}
+	}
+
 	msg, err := c.readHandshake()
 	if err != nil {
 		return err
 	}
-
-	// client authentication
-	if certMsg, ok := msg.(*certificateMsg13); ok {
-
-		// (4.4.2) Client MUST send certificate msg if requested by server
-		if c.config.ClientAuth < RequestClientCert {
-			c.sendAlert(alertUnexpectedMessage)
-			return unexpectedMessageError(certMsg, msg)
-		}
-
-		hs.keySchedule.write(certMsg.marshal())
-		certs := getCertsFromEntries(certMsg.certificates)
-		pubKey, err := hs.processCertsFromClient(certs)
-		if err != nil {
-			return err
-		}
-
-		// 4.4.3: CertificateVerify MUST appear immediately after Certificate msg
-		msg, err = c.readHandshake()
-		if err != nil {
-			return err
-		}
-
-		certVerify, ok := msg.(*certificateVerifyMsg)
-		if !ok {
-			c.sendAlert(alertUnexpectedMessage)
-			return unexpectedMessageError(certVerify, msg)
-		}
-
-		err, alertCode := verifyPeerHandshakeSignature(
-			certVerify,
-			pubKey,
-			supportedSignatureAlgorithms13,
-			hs.keySchedule.transcriptHash.Sum(nil),
-			"TLS 1.3, client CertificateVerify")
-		if err != nil {
-			c.sendAlert(alertCode)
-			return err
-		}
-		hs.keySchedule.write(certVerify.marshal())
-
-		// Read next chunk
-		msg, err = c.readHandshake()
-		if err != nil {
-			return err
-		}
-
-	} else if (c.config.ClientAuth >= RequestClientCert) && !c.didResume {
-		c.sendAlert(alertCertificateRequired)
-		return unexpectedMessageError(certMsg, msg)
-	}
-
 	clientFinished, ok := msg.(*finishedMsg)
 	if !ok {
 		c.sendAlert(alertUnexpectedMessage)

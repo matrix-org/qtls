@@ -50,6 +50,7 @@ type serverHandshakeState struct {
 	state             handshakeState
 	hello13Enc        *encryptedExtensionsMsg
 	keySchedule       *keySchedule13
+	clientPubKey      crypto.PublicKey
 	clientFinishedKey []byte
 	hsClientCipher    interface{}
 	appClientCipher   interface{}
@@ -174,14 +175,13 @@ func (c *Conn) doServerHandshake() error {
 func (hs *serverHandshakeState) handleMessage(msg interface{}) error {
 	c := hs.c
 
-	clientHello, ok := msg.(*clientHelloMsg)
-	if !ok {
-		c.sendAlert(alertUnexpectedMessage)
-		return unexpectedMessageError(hs.clientHello, msg)
+	if clientHello, ok := msg.(*clientHelloMsg); ok {
+		var err error
+		hs.isResume, err = hs.handleClientHello(clientHello)
+		return err
 	}
-	var err error
-	hs.isResume, err = hs.handleClientHello(clientHello)
-	return err
+	c.sendAlert(alertUnexpectedMessage)
+	return unexpectedMessageError(hs.clientHello, msg)
 }
 
 // handleClientHello processes a ClientHello message from the client and
@@ -421,6 +421,7 @@ Curves:
 		}
 	}
 
+	hs.state = serverStateNegotiated
 	return false, nil
 }
 
