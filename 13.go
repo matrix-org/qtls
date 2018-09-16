@@ -3,6 +3,7 @@ package tls
 import (
 	"bytes"
 	"crypto"
+	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/hmac"
@@ -119,12 +120,11 @@ func (ks *keySchedule13) deriveSecret(secretLabel secretLabel) []byte {
 	return secret
 }
 
-func (ks *keySchedule13) prepareCipher(secretLabel secretLabel) (interface{}, []byte) {
-	trafficSecret := ks.deriveSecret(secretLabel)
+func (ks *keySchedule13) prepareCipher(trafficSecret []byte) cipher.AEAD {
 	hash := hashForSuite(ks.suite)
 	key := hkdfExpandLabel(hash, trafficSecret, nil, "key", ks.suite.keyLen)
 	iv := hkdfExpandLabel(hash, trafficSecret, nil, "iv", ks.suite.ivLen)
-	return ks.suite.aead(key, iv), trafficSecret
+	return ks.suite.aead(key, iv)
 }
 
 func (hs *serverHandshakeState) doTLS13Handshake() error {
@@ -178,7 +178,8 @@ CurvePreferenceLoop:
 
 	hs.keySchedule.write(hs.clientHello.marshal())
 
-	earlyClientCipher, _ := hs.keySchedule.prepareCipher(secretEarlyClient)
+	earlyClientTrafficSecret := hs.keySchedule.deriveSecret(secretEarlyClient)
+	earlyClientCipher := hs.keySchedule.prepareCipher(earlyClientTrafficSecret)
 
 	ecdheSecret := deriveECDHESecret(ks, privateKey)
 	if ecdheSecret == nil {
@@ -197,9 +198,11 @@ CurvePreferenceLoop:
 	}
 
 	hs.keySchedule.setSecret(ecdheSecret)
-	clientCipher, cTrafficSecret := hs.keySchedule.prepareCipher(secretHandshakeClient)
+	cTrafficSecret := hs.keySchedule.deriveSecret(secretHandshakeClient)
+	clientCipher := hs.keySchedule.prepareCipher(cTrafficSecret)
 	hs.hsClientCipher = clientCipher
-	serverCipher, sTrafficSecret := hs.keySchedule.prepareCipher(secretHandshakeServer)
+	sTrafficSecret := hs.keySchedule.deriveSecret(secretHandshakeServer)
+	serverCipher := hs.keySchedule.prepareCipher(sTrafficSecret)
 	c.out.setCipher(c.vers, serverCipher)
 
 	serverFinishedKey := hkdfExpandLabel(hash, sTrafficSecret, nil, "finished", hashSize)
@@ -241,8 +244,10 @@ CurvePreferenceLoop:
 	}
 
 	hs.keySchedule.setSecret(nil) // derive master secret
-	hs.appClientCipher, _ = hs.keySchedule.prepareCipher(secretApplicationClient)
-	serverCipher, _ = hs.keySchedule.prepareCipher(secretApplicationServer)
+	clientApplicationTrafficSecret := hs.keySchedule.deriveSecret(secretApplicationClient)
+	hs.appClientCipher = hs.keySchedule.prepareCipher(clientApplicationTrafficSecret)
+	serverApplicationTrafficSecret := hs.keySchedule.deriveSecret(secretApplicationServer)
+	serverCipher = hs.keySchedule.prepareCipher(serverApplicationTrafficSecret)
 	c.out.setCipher(c.vers, serverCipher)
 
 	if c.hand.Len() > 0 {
@@ -986,8 +991,10 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 
 	// Calculate handshake secrets.
 	hs.keySchedule.setSecret(ecdheSecret)
-	clientCipher, clientHandshakeSecret := hs.keySchedule.prepareCipher(secretHandshakeClient)
-	serverCipher, serverHandshakeSecret := hs.keySchedule.prepareCipher(secretHandshakeServer)
+	clientHandshakeSecret := hs.keySchedule.deriveSecret(secretHandshakeClient)
+	clientCipher := hs.keySchedule.prepareCipher(clientHandshakeSecret)
+	serverHandshakeSecret := hs.keySchedule.deriveSecret(secretHandshakeServer)
+	serverCipher := hs.keySchedule.prepareCipher(serverHandshakeSecret)
 	if c.hand.Len() > 0 {
 		c.sendAlert(alertUnexpectedMessage)
 		return errors.New("tls: unexpected data after Server Hello")
@@ -1113,8 +1120,10 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 
 	// Server has authenticated itself. Calculate application traffic secrets.
 	hs.keySchedule.setSecret(nil) // derive master secret
-	appServerCipher, _ := hs.keySchedule.prepareCipher(secretApplicationServer)
-	appClientCipher, _ := hs.keySchedule.prepareCipher(secretApplicationClient)
+	serverApplicationTrafficSecret := hs.keySchedule.deriveSecret(secretApplicationServer)
+	appServerCipher := hs.keySchedule.prepareCipher(serverApplicationTrafficSecret)
+	clientApplicationTrafficSecret := hs.keySchedule.deriveSecret(secretApplicationClient)
+	appClientCipher := hs.keySchedule.prepareCipher(clientApplicationTrafficSecret)
 	// TODO store initial traffic secret key for KeyUpdate GH #85
 
 	// Change outbound handshake cipher for final step
