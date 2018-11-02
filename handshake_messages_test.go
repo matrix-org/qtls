@@ -349,13 +349,13 @@ func (*newSessionTicketMsg) Generate(rand *rand.Rand, size int) reflect.Value {
 
 func (*newSessionTicketMsg13) Generate(rand *rand.Rand, size int) reflect.Value {
 	m := &newSessionTicketMsg13{}
-	m.ageAdd = uint32(rand.Intn(0xffffffff))
-	m.lifetime = uint32(rand.Intn(0xffffffff))
+	m.ageAdd = uint32(rand.Intn(0xffffff))
+	m.lifetime = uint32(rand.Intn(0xffffff))
 	m.nonce = randomBytes(1+rand.Intn(255), rand)
 	m.ticket = randomBytes(1+rand.Intn(40), rand)
 	if rand.Intn(10) > 5 {
 		m.withEarlyDataInfo = true
-		m.maxEarlyDataLength = uint32(rand.Intn(0xffffffff))
+		m.maxEarlyDataLength = uint32(rand.Intn(0xffffff))
 	}
 	return reflect.ValueOf(m)
 }
@@ -380,8 +380,8 @@ func (*sessionState13) Generate(rand *rand.Rand, size int) reflect.Value {
 	s := &sessionState13{}
 	s.vers = uint16(rand.Intn(10000))
 	s.suite = uint16(rand.Intn(10000))
-	s.ageAdd = uint32(rand.Intn(0xffffffff))
-	s.maxEarlyDataLen = uint32(rand.Intn(0xffffffff))
+	s.ageAdd = uint32(rand.Intn(0xffffff))
+	s.maxEarlyDataLen = uint32(rand.Intn(0xffffff))
 	s.createdAt = uint64(rand.Int63n(0xfffffffffffffff))
 	s.pskSecret = randomBytes(rand.Intn(100), rand)
 	s.alpnProtocol = randomString(rand.Intn(100), rand)
